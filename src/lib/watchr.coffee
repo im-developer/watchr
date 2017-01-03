@@ -31,6 +31,12 @@ Events:
 watchersTotal = 0
 watchers = {}
 class Watcher extends EventEmitter
+	# The last watching method with info to detect rename!
+	last:
+		path: null
+		method: null
+		stat: null
+
 	# The path this class instance is attached to
 	path: null
 
@@ -427,6 +433,7 @@ class Watcher extends EventEmitter
 			if watchr.isDirectory() is false
 				# If we are a file, lets simply emit the change event
 				watchr.log('debug', "Determined update: #{watchr.path}")
+				watchr.last.method = 'update'
 				watchr.emit('change', 'update', watchr.path, currentStat, previousStat)
 				return complete()
 
@@ -488,6 +495,16 @@ class Watcher extends EventEmitter
 							relativePath: childFileRelativePath,
 							next: (err, childFileWatcher) ->
 								return complete(err)  if err
+
+								if watchr.last.method is 'delete'
+									if watchr.last.stat.dev == childFileWatcher.stat.dev and watchr.last.stat.mode == childFileWatcher.stat.mode and watchr.last.stat.nlink == childFileWatcher.stat.nlink and watchr.last.stat.uid == childFileWatcher.stat.uid and watchr.last.stat.gid == childFileWatcher.stat.gid and watchr.last.stat.rdev == childFileWatcher.stat.rdev and watchr.last.stat.blksize == childFileWatcher.stat.blksize and watchr.last.stat.ino == childFileWatcher.stat.ino and watchr.last.stat.size == childFileWatcher.stat.size and watchr.last.stat.blocks == childFileWatcher.stat.blocks and watchr.last.stat
+										watchr.last.method = 'rename'
+										watchr.emit('change', 'rename', childFileFullPath, watchr.last.path, childFileWatcher.stat, watcher.last.stat)
+										watchr.last.path = null
+										watchr.last.stat = null
+										return complete()
+
+								watchr.last.method = 'create'
 								watchr.emit('change', 'create', childFileFullPath, childFileWatcher.stat, null)
 								return complete()
 						)
@@ -533,7 +550,16 @@ class Watcher extends EventEmitter
 		# Updated state
 		if reason is 'deleted'
 			watchr.state = 'deleted'
-			watchr.emit('change', 'delete', watchr.path, null, watchr.stat)
+
+			# Set for rename!
+			watchr.last.method = 'delete'
+			watchr.last.stat = watchr.stat
+			watchr.last.path = watchr.path
+
+			setTimeout ( ->
+				if watchr.last.method != 'rename'
+			  	watchr.emit('change', 'delete', watchr.path, null, watchr.stat)
+			), 10
 		else if reason is 'failure'
 			watchr.state = 'closed'
 			watchr.log('warn', "Failed to watch the path #{watchr.path}")
